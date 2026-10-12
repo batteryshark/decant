@@ -13,7 +13,8 @@ let package = Package(
             linkerSettings: [.unsafeFlags([
                 "-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", "Resources/Info.plist"
             ])]
-        )
+        ),
+        .executableTarget(name: "DecantApp")
     ],
     swiftLanguageModes: [.v6]
 )

@@ -49,6 +49,33 @@ decant bottles create NAME [--windows win11] [--backend dxvk]
 decant bottles set NAME [--windows win7] [--backend wined3d]
 ```
 
+### Finder
+
+```sh
+scripts/install-app.sh
+```
+
+This builds `Decant.app`, a small wrapper around the CLI with no windows, and installs it to
+`~/Applications`. It then makes Decant your default app for `.exe` and `.msi`:
+
+- Double-clicking a Windows program runs it in the Default bottle. "Open With" also works
+  for `.bat` files.
+- Right-click → Services → **Run in Bottle…** asks you to pick a bottle or type a new name.
+- If decant fails, the error is shown in an alert.
+
+The app is ad-hoc signed. Files you downloaded open without a Gatekeeper prompt.
+
+To undo, delete the app and refresh the Services menu:
+
+```sh
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u ~/Applications/Decant.app
+rm -rf ~/Applications/Decant.app
+/System/Library/CoreServices/pbs -update
+```
+
+macOS then falls back to other apps for `.exe` and `.msi`. To pick one, use Get Info →
+Open with → Change All.
+
 The stable runtime is installed on first launch if it's missing. Pre-release runtimes
 (D3DMetal-capable 4.x) are only installed with `--prerelease`.
 
@@ -66,6 +93,7 @@ The bundle ID `io.github.batteryshark.decant` is embedded in the binary from
 - Logs, one per launch: `~/Library/Logs/io.github.batteryshark.decant/`
 
 `Sources/decant/WhiskyAdapter.swift` is the only file that imports WhiskyKit.
+`Sources/DecantApp/main.swift` is the Finder wrapper.
 `tests/` holds two small Windows programs, `sysinfo.c` and `d3d11test.c`, for checking a
 runtime. Build them with `tests/build.sh`, which needs `zig`.
 
@@ -74,8 +102,8 @@ runtime. Build them with `tests/build.sh`, which needs `zig`.
 1. `git -C vendor/Whisky fetch && git -C vendor/Whisky checkout <commit>`
 2. `swift build`. Fix any breakage in `WhiskyAdapter.swift` only. If the new WhiskyKit expects
    a new runtime major version, update `Kit.pinnedRuntimeMajor`.
-3. Run `decant runtime update --force`, then run the tests (`OUT` is a Windows path such as
-   `Z:\tmp\x.txt`):
+3. Run `decant runtime update --force`, then run the tests. `OUT` is a Windows path such as
+   `Z:\tmp\x.txt`. Without it, each test writes `C:\decant-<test>.txt` inside the bottle.
    - `decant tests/bin/sysinfo{64,32}.exe OUT` should report Windows 10 and WoW64.
    - `decant tests/bin/d3d11test{64,32}.exe OUT` should show `winemetal.dll` loaded, no
      `wined3d.dll`, and the expected readback pixel.

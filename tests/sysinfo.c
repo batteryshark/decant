@@ -1,9 +1,9 @@
-// Writes bitness, Windows version and WoW64 state to argv[1].
+// Writes bitness, Windows version and WoW64 state to argv[1] or C:\decant-sysinfo.txt.
 #include <windows.h>
 #include <stdio.h>
 
 int main(int argc, char **argv) {
-    FILE *f = fopen(argv[1], "w");
+    FILE *f = fopen(argc > 1 ? argv[1] : "C:\\decant-sysinfo.txt", "w");
     if (!f) return 1;
     OSVERSIONINFOW v = {sizeof(v)};
     ((LONG(WINAPI *)(OSVERSIONINFOW *))GetProcAddress(GetModuleHandleA("ntdll.dll"), "RtlGetVersion"))(&v);

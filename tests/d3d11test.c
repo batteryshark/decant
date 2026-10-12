@@ -1,5 +1,5 @@
 // Creates a D3D11 device + swapchain, presents for ~3 s, reads a cleared pixel
-// back, and writes which d3d11/dxgi DLLs and adapter were used to argv[1].
+// back, and writes which d3d11/dxgi DLLs and adapter were used to argv[1] or C:\decant-d3d11test.txt.
 #define COBJMACROS
 #include <windows.h>
 #include <d3d11.h>
@@ -13,7 +13,7 @@ static void module_path(FILE *f, const char *name) {
 }
 
 int main(int argc, char **argv) {
-    FILE *f = fopen(argv[1], "w");
+    FILE *f = fopen(argc > 1 ? argv[1] : "C:\\decant-d3d11test.txt", "w");
     if (!f) return 1;
     fprintf(f, "pointer bits: %d\n", (int)sizeof(void *) * 8);
 
