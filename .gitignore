@@ -1,0 +1,5 @@
+.build/
+*.log
+tests/bin/
+tests/out/
+.swiftpm/

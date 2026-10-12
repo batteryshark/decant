@@ -1,0 +1,3 @@
+[submodule "vendor/Whisky"]
+	path = vendor/Whisky
+	url = https://github.com/frankea/Whisky
