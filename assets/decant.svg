@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="decant">
+  <!-- decant: a decanter whose body holds a four-pane window (Windows apps, decanted) -->
+  <path fill="#C2185B" d="M228 66 L284 66 C293 66 298 71 298 80 L298 94 C298 102 288 106 286 114 L286 182 C286 202 302 210 318 222 C362 248 400 292 402 342 C404 398 356 448 296 452 L216 452 C156 448 108 398 110 342 C112 292 150 248 194 222 C210 210 226 202 226 182 L226 114 C224 106 214 102 214 94 L214 80 C214 71 219 66 228 66 Z"/>
+  <rect x="236" y="106" width="9" height="64" rx="4.5" fill="#F7C6DC" fill-opacity="0.5"/>
+  <g fill="#F7C6DC">
+    <rect x="191" y="287" width="58" height="58" rx="14"/>
+    <rect x="261" y="287" width="58" height="58" rx="14"/>
+    <rect x="191" y="357" width="58" height="58" rx="14"/>
+    <rect x="261" y="357" width="58" height="58" rx="14"/>
+  </g>
+</svg>

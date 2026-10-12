@@ -6,8 +6,9 @@ cd "$(dirname "$0")/.."
 swift build -c release
 app=.build/Decant.app
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
 cp Resources/App-Info.plist "$app/Contents/Info.plist"
+cp assets/AppIcon.icns "$app/Contents/Resources/"
 cp .build/release/DecantApp "$app/Contents/MacOS/Decant"
 cp .build/release/decant "$app/Contents/Helpers/decant"
 codesign --force -s - "$app/Contents/Helpers/decant"

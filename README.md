@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/decant.svg" width="128" alt="decant logo"></p>
+
 # decant
 
 Run Windows programs on Apple Silicon Macs with Wine and Metal graphics.
@@ -93,7 +95,8 @@ The bundle ID `io.github.batteryshark.decant` is embedded in the binary from
 - Logs, one per launch: `~/Library/Logs/io.github.batteryshark.decant/`
 
 `Sources/decant/WhiskyAdapter.swift` is the only file that imports WhiskyKit.
-`Sources/DecantApp/main.swift` is the Finder wrapper.
+`Sources/DecantApp/main.swift` is the Finder wrapper. `assets/AppIcon.svg` is the source
+for `assets/AppIcon.icns`.
 `tests/` holds two small Windows programs, `sysinfo.c` and `d3d11test.c`, for checking a
 runtime. Build them with `tests/build.sh`, which needs `zig`.
 

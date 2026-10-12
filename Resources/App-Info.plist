@@ -8,6 +8,8 @@
 	<string>Decant</string>
 	<key>CFBundleExecutable</key>
 	<string>Decant</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
