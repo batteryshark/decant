@@ -78,6 +78,9 @@ rm -rf ~/Applications/Decant.app
 macOS then falls back to other apps for `.exe` and `.msi`. To pick one, use Get Info →
 Open with → Change All.
 
+With a wired Xbox 360-style (XInput) controller, stick Y may come through inverted due to an SDL 2.32 bug in the
+current runtime. Use Bluetooth or the controller's Switch/other mode until the runtime picks up the SDL fix.
+
 The stable runtime is installed on first launch if it's missing. Pre-release runtimes
 (D3DMetal-capable 4.x) are only installed with `--prerelease`.
 
