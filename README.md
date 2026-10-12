@@ -1,10 +1,28 @@
 # decant
 
-Run Windows programs on Apple Silicon Macs with Wine and Metal graphics, without
-CrossOver. `decant foo.exe` runs it in a default bottle and returns at once.
+Run Windows programs on Apple Silicon Macs with Wine and Metal graphics.
+`decant app.exe` runs the program in a default bottle and returns right away.
 
-Built on [frankea/Whisky](https://github.com/frankea/Whisky)'s WhiskyKit and its
-Wine runtime (Wine 11, DXMT, DXVK-macOS). GPL-3.0-or-later, because it links WhiskyKit.
+## Why this exists
+
+On Linux you install Wine from your distro, right-click an `.exe`, and it runs.
+Macs don't have that, for these reasons:
+
+- **No distro packaging.** Homebrew disabled its `wine-stable` cask on 2026-09-01 because it
+  fails Gatekeeper.
+- **Gatekeeper and notarization.** Unsigned Wine builds get blocked or need workarounds.
+- **No 32-bit processes on macOS.** Wine needs WoW64 to run 32-bit Windows programs inside
+  64-bit processes. On Apple Silicon, all of it runs under Rosetta 2.
+- **No native Vulkan.** Direct3D has to be translated to Metal by DXMT, D3DMetal, or DXVK
+  over MoltenVK.
+- **D3DMetal can't be redistributed.** Apple's license forbids it, so it has to be
+  user-supplied.
+- **The pieces are scattered.** Wine builds, the translation layers and the glue between
+  them all come from different projects.
+
+decant uses frankea/Whisky's runtime (Wine plus DXMT and DXVK-macOS) and its WhiskyKit
+library. It adds only the convenience layer: runtime install, bottles, and a launch command
+that returns immediately.
 
 ## Build
 
@@ -13,75 +31,63 @@ git submodule update --init      # vendor/Whisky at the pinned commit
 swift build -c release           # → .build/release/decant
 ```
 
-Needs Xcode/CLT with Swift 6, macOS 15+, and Rosetta 2.
+Needs Swift 6, macOS 15+ and Rosetta 2.
 
 ## Usage
 
 ```sh
-decant runtime update                # download, sha256-verify, install the stable runtime
-decant runtime status [--prerelease] # installed vs latest version
-decant runtime update --prerelease   # D3DMetal-capable 4.x pre-release (untested with this pin)
+decant runtime update [--prerelease] [--force]   # download, sha256-verify, install
+decant runtime status [--prerelease]
 
-decant path/to/app.exe [args...]     # run in bottle "Default" (created on first use), detach
-decant path/to/setup.msi [args...]   # runs msiexec /i <file> [args...]
-decant 'C:\windows\notepad.exe'      # a path inside the bottle's C: drive
-decant --bottle Games game.exe       # use, or create, bottle "Games"
-decant --env WINEDEBUG=+loaddll app.exe   # per-launch environment
+decant app.exe [args...]              # run in bottle "Default", created on first use
+decant setup.msi [args...]            # msiexec /i setup.msi [args...]
+decant --bottle Games game.exe        # use, or create, bottle "Games"
+decant --env WINEDEBUG=+loaddll app.exe
 
 decant bottles list
 decant bottles create NAME [--windows win11] [--backend dxvk]
 decant bottles set NAME [--windows win7] [--backend wined3d]
-decant wine [--bottle NAME] reg query 'HKLM\Software\Microsoft\Windows NT\CurrentVersion'
-decant kill [--bottle NAME]          # wineserver -k
 ```
 
-The runtime is installed on first launch if it's missing. Each launch writes its output to
-`~/Library/Logs/io.github.batteryshark.decant/<time>-<program>.log`.
+The stable runtime is installed on first launch if it's missing. Pre-release runtimes
+(D3DMetal-capable 4.x) are only installed with `--prerelease`.
 
-New bottles are a 64-bit prefix with WoW64 (32-bit programs run), report Windows 10,
-and use DXMT for D3D10/11. D3D9 and older stay on Wine's wined3d. DXMT's 32-bit DLLs
-go into `syswow64`, so 32-bit D3D11 programs get Metal too.
+New bottles are a 64-bit prefix with WoW64, so 32-bit programs run too. They report
+Windows 10 and use DXMT for D3D10/11. D3D9 and older stay on Wine's wined3d. DXMT's
+32-bit DLLs go into `syswow64`, so 32-bit D3D11 programs get Metal as well.
 
-Backends: `dxmt`, `dxvk`, `d3dMetal` (needs a GPTK runtime), `wined3d`, and `recommended`
-(WhiskyKit picks). Windows versions: `winxp64`, `win7`, `win8`, `win81`, `win10`, `win11`.
+## Files
 
-## Where things live
+The bundle ID `io.github.batteryshark.decant` is embedded in the binary from
+`Resources/Info.plist`. It keys every path, so decant never touches a real Whisky install.
 
-All paths are keyed on the bundle ID in `Resources/Info.plist`, which is embedded into the
-binary with `-sectcreate __TEXT __info_plist`. That keeps decant's data apart from any real
-Whisky install.
+- Runtime: `~/Library/Application Support/io.github.batteryshark.decant/Libraries/`
+- Bottles: `~/Library/Application Support/io.github.batteryshark.decant/Bottles/<name>/`
+- Logs, one per launch: `~/Library/Logs/io.github.batteryshark.decant/`
 
-| What | Path |
-|---|---|
-| Runtime | `~/Library/Application Support/io.github.batteryshark.decant/Libraries/` |
-| Bottles | `~/Library/Application Support/io.github.batteryshark.decant/Bottles/<name>/` |
-| Logs | `~/Library/Logs/io.github.batteryshark.decant/` |
+`Sources/decant/WhiskyAdapter.swift` is the only file that imports WhiskyKit.
+`tests/` holds two small Windows programs, `sysinfo.c` and `d3d11test.c`, for checking a
+runtime. Build them with `tests/build.sh`, which needs `zig`.
 
-decant doesn't use WhiskyKit's `BottleData` registry, which lives under `~/Library/Containers`.
-Any folder in `Bottles/` that has a `Metadata.plist` is a bottle.
+## Bumping WhiskyKit (always together with the runtime)
 
-## Code layout
+1. `git -C vendor/Whisky fetch && git -C vendor/Whisky checkout <commit>`
+2. `swift build`. Fix any breakage in `WhiskyAdapter.swift` only. If the new WhiskyKit expects
+   a new runtime major version, update `Kit.pinnedRuntimeMajor`.
+3. Run `decant runtime update --force`, then run the tests (`OUT` is a Windows path such as
+   `Z:\tmp\x.txt`):
+   - `decant tests/bin/sysinfo{64,32}.exe OUT` should report Windows 10 and WoW64.
+   - `decant tests/bin/d3d11test{64,32}.exe OUT` should show `winemetal.dll` loaded, no
+     `wined3d.dll`, and the expected readback pixel.
+4. Commit `vendor/Whisky` together with any adapter changes.
 
-- `Sources/decant/WhiskyAdapter.swift`: the **only** file that imports WhiskyKit.
-- `Runtime.swift`: fetches the manifest, downloads the tarball, checks sha256, installs or
-  upgrades. Stable releases come from `WhiskyWineVersion.plist`. Pre-releases come from the
-  GitHub releases API, with the sha256 taken from the asset digest.
-- `Bottles.swift`, `Launch.swift` (detached `posix_spawn` with `setsid`), `main.swift` (CLI).
-- `tests/`: small 64/32-bit Windows test programs (`sysinfo.c`, `d3d11test.c`). Build them
-  with `tests/build.sh` (needs `zig`).
+Current pin: frankea/Whisky `3abfbae9` (2026-10-01), runtime 3.1.1.
 
-## Bumping the WhiskyKit pin (always together with the runtime)
+## Credits and license
 
-WhiskyKit expects a matching runtime layout, so change both at the same time:
+Built on [Wine](https://www.winehq.org), [Gcenx](https://github.com/Gcenx)'s macOS Wine
+builds, [DXMT](https://github.com/3Shain/dxmt), [DXVK-macOS](https://github.com/Gcenx/DXVK-macOS),
+[MoltenVK](https://github.com/KhronosGroup/MoltenVK) and
+[frankea/Whisky](https://github.com/frankea/Whisky).
 
-1. `cd vendor/Whisky && git fetch && git checkout <new commit> && cd ../..`
-2. `swift build`, then fix any API breakage in `WhiskyAdapter.swift` only.
-3. If the new WhiskyKit targets a new runtime major version, update `Kit.pinnedRuntimeMajor`
-   in the adapter. The stable channel refuses newer majors until you do.
-4. `decant runtime update` (add `--force` to reinstall the same version), then re-run the
-   checks: `tests/bin/sysinfo{64,32}.exe` and `decant --env WINEDEBUG=+loaddll
-   tests/bin/d3d11test{64,32}.exe <outfile>` should show native `d3d11.dll`/`DXGI.DLL`,
-   `winemetal.dll`, and no `wined3d.dll`.
-5. `git add vendor/Whisky Sources && git commit -m "Bump WhiskyKit to <sha>"`.
-
-Current pin: frankea/Whisky `3abfbae945e3400caaa13cf2e78fe5a187a1405b` (2026-10-01), runtime 3.1.1.
+GPL-3.0-or-later, since decant links WhiskyKit. See `LICENSE`.

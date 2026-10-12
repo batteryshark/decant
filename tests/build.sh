@@ -9,4 +9,3 @@ for arch in x86_64 x86; do
   zig cc -target "$arch-windows-gnu" -O2 d3d11test.c -o "bin/d3d11test$bits.exe" -ld3d11 -ldxgi -luser32 -lgdi32
 done
 rm -f bin/*.pdb
-ls -l bin
