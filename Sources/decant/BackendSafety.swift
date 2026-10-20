@@ -1,6 +1,14 @@
 import Foundation
 
 enum BackendSafety {
+    // Upstream applies legacy dxvk=false after the bottle preset, resetting
+    // its DLLs to builtin. Do not report DXVK while preparing that conflict.
+    static func checkLegacyDXVK(backend: String, explicitProgramBackend: Bool, legacyDXVK: Bool?) throws {
+        if ["dxvk", "dxmt"].contains(backend), !explicitProgramBackend, legacyDXVK == false {
+            throw DecantError("requested \(backend) conflicts with saved program dxvk=false; use a separate bottle or remove that override")
+        }
+    }
+
     static let marker = Data("Wine builtin DLL".utf8)
 
     static func restoreBuiltin(_ destination: URL, from source: URL, knownCopies: [URL], strippedBuiltin: URL? = nil) throws {

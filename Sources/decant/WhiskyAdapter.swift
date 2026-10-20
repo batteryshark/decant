@@ -4,25 +4,26 @@ import WhiskyKit
 
 @MainActor
 enum Kit {
-    /// Runtime major version this WhiskyKit pin works with.
-    static let pinnedRuntimeMajor = 3
-
     static var bundleID: String { Bundle.whiskyBundleIdentifier }
     static var appSupport: URL { WhiskyWineInstaller.applicationFolder }
-    static var stableManifestURL: URL { URL(string: DistributionConfig.versionPlistURL)! }
+    static var runtimeIdentityURL: URL { WhiskyWineInstaller.libraryFolder.appending(path: "DecantRuntime.json") }
 
-    static func librariesURL(version: String) -> URL {
-        URL(string: DistributionConfig.librariesURL(version: version))!
+    static var paths: [String: String] {
+        ["bundleID": bundleID, "support": appSupport.path,
+         "bottles": appSupport.appending(path: "Bottles").path,
+         "logs": FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Logs/\(bundleID)").path]
     }
 
     struct RuntimeInfo {
         var version: String
         var dxmt: String?
         var sha256: String?
+        var dxvk: String?
+        var gptkCapable: Bool
     }
 
     private static func info(_ v: WhiskyWineVersion) -> RuntimeInfo {
-        RuntimeInfo(version: "\(v.version)", dxmt: v.dxmtVersion, sha256: v.sha256)
+        RuntimeInfo(version: "\(v.version)", dxmt: v.dxmtVersion, sha256: v.sha256, dxvk: v.dxvkVersion, gptkCapable: v.gptkCapable == true)
     }
 
     static func installedRuntime() -> RuntimeInfo? {
@@ -32,6 +33,25 @@ enum Kit {
 
     static func parseManifest(_ data: Data) throws -> RuntimeInfo {
         info(try PropertyListDecoder().decode(WhiskyWineVersion.self, from: data))
+    }
+
+    static func validateRuntimeInfo(_ info: RuntimeInfo, release: RuntimeRelease) throws {
+        guard info.version == release.version, info.dxmt == release.dxmt, info.dxvk == release.dxvk,
+              info.gptkCapable == release.gptkCapable else { throw DecantError("runtime plist incompatible with reviewed \(release.tag)") }
+    }
+
+    static func validateRuntimeArchive(_ archive: URL, release: RuntimeRelease) throws {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/tar")
+        process.arguments = ["-xOf", archive.path, "Libraries/WhiskyWineVersion.plist"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw DecantError("runtime archive has no readable version plist") }
+        try validateRuntimeInfo(parseManifest(data), release: release)
     }
 
     static func sha256(of file: URL) -> String? { WhiskyWineInstaller.sha256(ofFileAt: file) }
@@ -51,6 +71,7 @@ enum Kit {
 
     static func importGPTK(_ source: URL) throws {
         try GPTKDiskImage.withPayload(at: source, locate: GPTKImporter.locatePayload(under:)) { root in
+            try GPTKPayloadLayout.validate(root)
             let payload = try GPTKImporter.validatePayload(at: root)
             let record = try GPTKImporter.importPayload(payload)
             print("imported local Apple GPTK \(record.gptkVersion)")
@@ -62,7 +83,8 @@ enum Kit {
     /// Read-only validation seam for opt-in tests against an original Apple DMG.
     static func validateGPTK(_ source: URL) throws -> String {
         try GPTKDiskImage.withPayload(at: source, locate: GPTKImporter.locatePayload(under:)) {
-            try GPTKImporter.validatePayload(at: $0).version
+            try GPTKPayloadLayout.validate($0)
+            return try GPTKImporter.validatePayload(at: $0).version
         }
     }
 
@@ -147,6 +169,9 @@ enum Kit {
         let requested = program.settings.overrides?.graphicsBackend ?? bottle.settings.graphicsBackend
         let effective = requested == .recommended ? GraphicsBackendResolver.resolve(for: LauncherType.detect(from: exe)) : requested
         try validateBackend(effective.rawValue)
+        try BackendSafety.checkLegacyDXVK(backend: effective.rawValue,
+            explicitProgramBackend: program.settings.overrides?.graphicsBackend != nil,
+            legacyDXVK: program.settings.overrides?.dxvk)
         let usesDXVK = effective == .dxvk || (program.settings.overrides?.graphicsBackend == nil && program.settings.overrides?.dxvk == true)
             || (bottle.settings.autoEnableDXVK && bottle.settings.detectedLauncher?.requiresDXVK == true)
         guard !usesDXVK || effective == .dxvk else {

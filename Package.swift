@@ -9,6 +9,7 @@ let package = Package(
         .executableTarget(
             name: "decant",
             dependencies: ["WhiskyKit"],
+            resources: [.copy("Resources/RuntimePins.json")],
             // Our own bundle ID keys every WhiskyKit path, isolating us from a real Whisky install.
             linkerSettings: [.unsafeFlags([
                 "-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", "Resources/Info.plist"

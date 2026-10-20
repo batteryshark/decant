@@ -38,9 +38,9 @@ Needs Swift 6, macOS 15+ and Rosetta 2.
 ## Usage
 
 ```sh
-decant runtime update [--prerelease] [--force]   # download, sha256-verify, install
+decant runtime update [--prerelease] [--force]   # install the reviewed pin, not latest
 decant runtime status                         # local only; no download or Wine
-decant runtime status --check [--prerelease]   # also check releases online
+decant runtime status --check [--prerelease]   # verify exact pin's public metadata
 decant runtime import-gptk <dmg-or-dir>        # original local Apple download
 
 decant app.exe [args...]              # run in bottle "Default", created on first use
@@ -81,7 +81,13 @@ macOS then falls back to other apps for `.exe` and `.msi`. To pick one, use Get 
 Open with → Change All.
 
 The stable runtime is installed on first launch if it's missing. Pre-release runtimes
-(D3DMetal-capable 4.x) are only installed with `--prerelease`.
+(D3DMetal-capable) are only installed with `--prerelease`. Releases are exact reviewed
+pins, not floating updates. Local status (including `--prerelease`) works offline;
+only `--check` requests public metadata. Successful installs record the exact tag,
+digest and kit commit in `Libraries/DecantRuntime.json`. An ordinary update retains
+a checked prerelease; `--force` explicitly replaces it. Legacy stable installs remain
+launchable, but need `--force` to establish a checked identity by reinstalling.
+An untracked beta cannot be identified from its core plist version alone.
 
 New bottles are a 64-bit prefix with WoW64, so 32-bit programs run too. They report
 Windows 10 and use DXMT for D3D10/11. D3D9 and older stay on Wine's wined3d. DXMT's
@@ -128,19 +134,57 @@ does not install a runtime or touch real bottles. To additionally validate an
 original Apple DMG readonly, set `DECANT_TEST_GPTK_PATH` to its local path when
 running the tests. This does not import or deploy the payload.
 
-## Bumping WhiskyKit (always together with the runtime)
+## Paired kit/runtime review
 
-1. `git -C vendor/Whisky fetch && git -C vendor/Whisky checkout <commit>`
-2. `swift build`. Fix any breakage in `WhiskyAdapter.swift` only. If the new WhiskyKit expects
-   a new runtime major version, update `Kit.pinnedRuntimeMajor`.
-3. Run `decant runtime update --force`, then run the tests. `OUT` is a Windows path such as
-   `Z:\tmp\x.txt`. Without it, each test writes `C:\decant-<test>.txt` inside the bottle.
-   - `decant tests/bin/sysinfo{64,32}.exe OUT` should report Windows 10 and WoW64.
-   - `decant tests/bin/d3d11test{64,32}.exe OUT` should show `winemetal.dll` loaded, no
-     `wined3d.dll`, and the expected readback pixel.
-4. Commit `vendor/Whisky` together with any adapter changes.
+`Sources/decant/Resources/RuntimePins.json` is the sole machine-readable pin source
+for both CLI and checker: exact kit commit, stable/prerelease tag, archive digest,
+plist version and required backend capabilities. The current stable is 3.1.1 and
+the explicit prerelease is v4.6.4-beta.1 (whose plist says 4.6.4); both use the same
+reviewed kit. No runtime/kit pin changes are discovered or installed automatically.
 
-Current pin: frankea/Whisky `3abfbae9` (2026-10-01), runtime 3.1.1.
+1. Review the upstream kit and release metadata. If changing kit, fetch and check
+   out the chosen commit in `vendor/Whisky` only after confirming it is clean.
+   Edit the JSON for the exact reviewed pairs; fix adapter/API changes as needed.
+   Obtain original runtime archives from the exact official release URLs, outside
+   the repo. Do not derive a digest from an unreviewed example.
+2. Run this gate for **each channel**, using its matching local archive:
+   ```sh
+   python3 scripts/check-pair.py --channel stable --archive /path/to/stable/Libraries.tar.gz
+   python3 scripts/check-pair.py --channel prerelease --archive /path/to/beta/Libraries.tar.gz
+   ```
+   It rejects a mismatched/dirty vendor, mismatched GitHub metadata or digest,
+   missing/incompatible runtime plist, Wine binaries or 32/64-bit backend payloads.
+   It reads the archive without installing, runs Python/Swift fixture tests and a
+   release build sequentially, with timeouts and four Swift jobs. Xcode is selected
+   through `DEVELOPER_DIR` (defaults to `/Applications/Xcode.app/Contents/Developer`).
+   `--metadata-only` instead of `--archive` is a preflight, **not** an artifact gate.
+3. Before accepting a changed pair, run isolated Wine integration (below), including
+   install/reinstall identity, GPTK retention/redeploy, 32/64-bit sysinfo and D3D11,
+   DXVK and backend round trips. Static checks do not establish rendering/ABI
+   compatibility. D3DMetal interposer policy is a separate evidence-based review.
+4. Review `git diff`, then stage the JSON, `vendor/Whisky` gitlink, adapter/tests and
+   evidence-related changes together in **one local commit**. Never commit runtime
+   archives or Apple payloads. The checker does not commit, install or push.
+
+### Isolated integration CLI
+
+```sh
+python3 scripts/isolated-cli.py
+```
+
+This copies the package to a temporary directory, embeds a fresh unique test
+bundle ID, builds it, and verifies its actual Foundation support/bottle/log paths
+using `runtime paths`. It prints the binary and writes `isolation.json` beside the
+temporary package. It does **not** install a runtime, create a bottle or run Wine.
+Use **only that printed binary** for later authorized integration commands, never
+the normal checkout CLI or Finder app. Changing `HOME` alone is not isolation.
+
+After authorization, install with that binary's `runtime update` (or explicit
+`--prerelease`), inspect status/identity, import the local original GPTK and use
+diagnostic bottles. Stop only your own diagnostic apps before replacing their
+runtime; never terminate the principal's Wine processes. Keep the printed unique
+support/log paths with test evidence; clean up only those paths and the temporary
+package once their diagnostic processes have exited.
 
 ## Credits and license
 

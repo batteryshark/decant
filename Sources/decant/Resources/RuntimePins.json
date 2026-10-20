@@ -1,0 +1,21 @@
+{
+  "kitCommit": "3abfbae945e3400caaa13cf2e78fe5a187a1405b",
+  "stable": {
+    "tag": "v3.1.1",
+    "version": "3.1.1",
+    "sha256": "01f3a1b43b98065fe20c529c1023b61dd79a6d2ad93bba6040865f646481ccf3",
+    "prerelease": false,
+    "gptkCapable": false,
+    "dxmt": "0.80",
+    "dxvk": "1.10.3"
+  },
+  "prerelease": {
+    "tag": "v4.6.4-beta.1",
+    "version": "4.6.4",
+    "sha256": "c8e6a10dfeb54fc16d3dd3382ee2e9d2cec3eb1f5641613cad8b07903818cb12",
+    "prerelease": true,
+    "gptkCapable": true,
+    "dxmt": "0.80",
+    "dxvk": "1.10.3"
+  }
+}

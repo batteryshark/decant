@@ -14,6 +14,7 @@ usage:
   decant runtime status [--check] [--prerelease]
   decant runtime update [--prerelease] [--force]
   decant runtime import-gptk <dmg-or-dir>
+  decant runtime paths
 
   VER: winxp64 win7 win8 win81 win10 win11    B: dxmt dxvk d3dMetal wined3d recommended
 """
@@ -55,6 +56,8 @@ func runCLI(_ argv: [String]) async throws {
         let o = try parse(Array(argv.dropFirst()), valued: [], flags: ["--prerelease", "--force", "--check"])
         let pre = o.flags.contains("--prerelease")
         switch o.rest {
+        case ["paths"] where o.flags.isEmpty:
+            print(String(decoding: try JSONEncoder().encode(Kit.paths), as: UTF8.self))
         case ["status"] where !o.flags.contains("--force"):
             try await Runtime.status(prerelease: pre, check: o.flags.contains("--check"))
         case ["update"] where !o.flags.contains("--check"):

@@ -1,12 +1,5 @@
-// Stable runtimes come from frankea's WhiskyWineVersion.plist; pre-releases from
-// the GitHub releases API, with the sha256 from the asset digest.
+// Only reviewed exact pairs are installable. No floating release discovery.
 import Foundation
-
-struct RuntimeRelease {
-    var version: String
-    var url: URL
-    var sha256: String
-}
 
 @MainActor
 enum Runtime {
@@ -17,48 +10,35 @@ enum Runtime {
         catch { throw DecantError("runtime installed, but GPTK redeployment failed (payload retained): \(error)") }
     }
 
-    static func latest(prerelease: Bool) async throws -> RuntimeRelease {
-        if !prerelease {
-            let info = try Kit.parseManifest(try await fetch(Kit.stableManifestURL))
-            guard let sha = info.sha256 else { throw DecantError("stable manifest has no sha256") }
-            return RuntimeRelease(version: info.version, url: Kit.librariesURL(version: info.version), sha256: sha)
-        }
-        struct Asset: Decodable { let name: String; let browser_download_url: URL; let digest: String? }
-        struct Release: Decodable { let tag_name: String; let prerelease: Bool; let assets: [Asset] }
-        let api = URL(string: "https://api.github.com/repos/frankea/Whisky/releases?per_page=30")!
-        for rel in try JSONDecoder().decode([Release].self, from: try await fetch(api)) where rel.prerelease && rel.tag_name.hasPrefix("v") {
-            if let asset = rel.assets.first(where: { $0.name == "Libraries.tar.gz" }),
-               let digest = asset.digest, digest.hasPrefix("sha256:") {
-                return RuntimeRelease(version: String(rel.tag_name.dropFirst()), url: asset.browser_download_url,
-                                      sha256: String(digest.dropFirst("sha256:".count)))
-            }
-        }
-        throw DecantError("no pre-release runtime with a sha256 digest found")
-    }
-
-    static func isNewer(_ candidate: String, than installed: String) -> Bool {
-        installed.compare(candidate, options: .numeric) == .orderedAscending
-    }
-
     static func status(prerelease: Bool, check: Bool) async throws {
+        let pins = try RuntimePins.load()
         let cur = Kit.installedRuntime()
         print("installed: " + (cur.map { "\($0.version) (DXMT \($0.dxmt ?? "none"))" } ?? "none"))
+        do {
+            let record = try InstalledRuntime.read(at: Kit.runtimeIdentityURL)
+            print("checked release: " + (record.map { "\($0.release.tag) sha256=\($0.release.sha256) kit=\($0.kitCommit)\(cur?.version == $0.release.version ? "" : " (plist mismatch)")" } ?? "unknown (legacy/untracked)"))
+        } catch { print("checked release: unreadable (\(error))") }
+        print("reviewed stable: \(pins.stable.tag); prerelease: \(pins.prerelease.tag); kit: \(pins.kitCommit)")
         Kit.localStatus().forEach { print($0) }
-        guard check || prerelease else { return }
-        let rel = try await latest(prerelease: prerelease)
-        let newer = cur.map { isNewer(rel.version, than: $0.version) } ?? true
-        print("latest \(prerelease ? "pre-release" : "stable"): \(rel.version)\(newer ? " (update available)" : "")")
+        guard check else { return }
+        let rel = prerelease ? pins.prerelease : pins.stable
+        try rel.checkMetadata(try await fetch(rel.metadataURL))
+        print("public metadata matches reviewed \(rel.tag)")
     }
 
     static func update(prerelease: Bool, force: Bool) async throws {
-        let rel = try await latest(prerelease: prerelease)
-        if !prerelease, Int(rel.version.prefix { $0.isNumber }) ?? 0 > Kit.pinnedRuntimeMajor {
-            throw DecantError("runtime \(rel.version) is newer than this WhiskyKit pin supports; bump the pin first (README)")
+        let pins = try RuntimePins.load()
+        let rel = prerelease ? pins.prerelease : pins.stable
+        let target = InstalledRuntime(kitCommit: pins.kitCommit, release: rel)
+        let installed = force ? nil : try InstalledRuntime.read(at: Kit.runtimeIdentityURL)
+        let cur = Kit.installedRuntime()
+        if let installed, let cur { try Kit.validateRuntimeInfo(cur, release: installed.release) }
+        switch try RuntimeDecision.update(target: target, installed: installed, version: cur?.version, force: force) {
+        case .current: print("reviewed runtime \(rel.tag) is already installed"); return
+        case .retainPrerelease: print("retaining checked prerelease; use --force for an explicit stable replacement"); return
+        case .install: break
         }
-        if let cur = Kit.installedRuntime(), !force, !isNewer(rel.version, than: cur.version) {
-            print("runtime \(cur.version) is up to date")
-            return
-        }
+        try rel.checkMetadata(try await fetch(rel.metadataURL))
         print("downloading \(rel.url.absoluteString)")
         let (tarball, response) = try await URLSession.shared.download(from: rel.url)
         defer { try? FileManager.default.removeItem(at: tarball) }
@@ -68,13 +48,24 @@ enum Runtime {
             throw DecantError("sha256 mismatch: expected \(rel.sha256), got \(actual)")
         }
         print("sha256 ok: \(actual)")
+        // Read the archive's plist before touching the shared runtime.
+        try Kit.validateRuntimeArchive(tarball, release: rel)
         try Kit.installRuntime(tarball: tarball)
         guard let cur = Kit.installedRuntime() else { throw DecantError("runtime missing after install") }
-        print("installed runtime \(cur.version) (DXMT \(cur.dxmt ?? "none"))")
+        try Kit.validateRuntimeInfo(cur, release: rel)
+        try target.write(to: Kit.runtimeIdentityURL)
+        print("installed checked runtime \(rel.tag) (plist \(cur.version), DXMT \(cur.dxmt ?? "none"))")
     }
 
     static func ensureInstalled() async throws {
-        if Kit.installedRuntime() == nil { try await update(prerelease: false, force: true) }
+        let pins = try RuntimePins.load()
+        guard let cur = Kit.installedRuntime() else {
+            try await update(prerelease: false, force: false)
+            return
+        }
+        let release = try RuntimeDecision.launchRelease(pins: pins,
+            installed: InstalledRuntime.read(at: Kit.runtimeIdentityURL), version: cur.version)
+        try Kit.validateRuntimeInfo(cur, release: release)
     }
 
     private static func fetch(_ url: URL) async throws -> Data {

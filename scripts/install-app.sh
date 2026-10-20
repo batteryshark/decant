@@ -11,6 +11,7 @@ cp Resources/App-Info.plist "$app/Contents/Info.plist"
 cp assets/AppIcon.icns "$app/Contents/Resources/"
 cp .build/release/DecantApp "$app/Contents/MacOS/Decant"
 cp .build/release/decant "$app/Contents/Helpers/decant"
+cp -R .build/release/decant_decant.bundle "$app/Contents/Helpers/"
 codesign --force -s - "$app/Contents/Helpers/decant"
 codesign --force -s - "$app"
 
