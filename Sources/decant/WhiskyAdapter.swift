@@ -71,13 +71,7 @@ enum Kit {
             throw DecantError("kit compatibility policy mismatch")
         }
         let pins = try RuntimePins.load()
-        let roots = [Bundle.main.executableURL?.deletingLastPathComponent(), Bundle.main.bundleURL].compactMap { $0 }
-        let source = roots.compactMap { Bundle(url: $0.appending(path: "decant_decant.bundle")) }
-            .compactMap { $0.url(forResource: pins.shim.file, withExtension: nil) }.first
-        guard let source, sha256(of: source) == pins.shim.sha256,
-              try Data(contentsOf: source).count == pins.shim.size else {
-            throw DecantError("checked compatibility resource missing or damaged")
-        }
+        let source = try checkedCompatibilityShim(pins: pins)
         let destination = WhiskyWineInstaller.libraryFolder.appending(path: "Wine/lib/gptk-video").appending(path: pins.shim.file)
         if FileManager.default.fileExists(atPath: destination.path) {
             guard sha256(of: destination) == pins.shim.sha256 else { throw DecantError("runtime compatibility overlay identity mismatch") }
@@ -86,6 +80,16 @@ enum Kit {
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(contentsOf: source).write(to: destination, options: .atomic)
         return true
+    }
+
+    /// Read-only check shared by deployment and relocated-package regression tests.
+    static func checkedCompatibilityShim(pins: RuntimePins, executableURL: URL? = Bundle.main.executableURL) throws -> URL {
+        let source = CheckedResources.bundle(executableURL: executableURL)?.url(forResource: pins.shim.file, withExtension: nil)
+        guard let source, sha256(of: source) == pins.shim.sha256,
+              try Data(contentsOf: source).count == pins.shim.size else {
+            throw DecantError("checked compatibility resource missing or damaged")
+        }
+        return source
     }
 
     static func redeployGPTK(replaceHandPlaced: Bool = false) throws {

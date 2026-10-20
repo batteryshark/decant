@@ -43,6 +43,38 @@ final class RuntimePinTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testRelocatedCheckedResourcesAndNormalFailures() throws {
+        let pins = try pins()
+        try fixture { root in
+            for layout in ["standalone", "App.app/Contents/Helpers"] {
+                let executable = root.appending(path: layout).appending(path: "decant")
+                let resources = layout == "standalone" ? executable.deletingLastPathComponent()
+                    : root.appending(path: "App.app/Contents/Resources")
+                let bundle = resources.appending(path: "decant_decant.bundle")
+                try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                let pinURL = bundle.appending(path: "RuntimePins.json")
+                try Data(contentsOf: Bundle.module.url(forResource: "RuntimePins", withExtension: "json")!).write(to: pinURL)
+                let shim = bundle.appending(path: pins.shim.file)
+                try Data(contentsOf: Bundle.module.url(forResource: pins.shim.file, withExtension: nil)!).write(to: shim)
+                XCTAssertEqual(CheckedResources.bundle(executableURL: executable)?.bundleURL.path, bundle.path)
+                XCTAssertEqual(try RuntimePins.load(from: pinURL).shim.sha256, pins.shim.sha256)
+                XCTAssertEqual(try Kit.checkedCompatibilityShim(pins: pins, executableURL: executable), shim)
+                try Data("damaged".utf8).write(to: shim)
+                XCTAssertThrowsError(try Kit.checkedCompatibilityShim(pins: pins, executableURL: executable))
+                try FileManager.default.removeItem(at: shim)
+                XCTAssertThrowsError(try Kit.checkedCompatibilityShim(pins: pins, executableURL: executable))
+                try Data("damaged".utf8).write(to: pinURL)
+                XCTAssertThrowsError(try RuntimePins.load(from: pinURL))
+                try FileManager.default.removeItem(at: bundle)
+                // Foundation may cache a Bundle after removal; actual reads must fail.
+                XCTAssertThrowsError(try RuntimePins.load(from: pinURL))
+                XCTAssertThrowsError(try Kit.checkedCompatibilityShim(pins: pins, executableURL: executable))
+            }
+            XCTAssertNil(CheckedResources.bundle(executableURL: nil))
+        }
+    }
+
     func testCompatibilityIdentityIsPartOfExactPair() throws {
         let pins = try pins()
         let old = InstalledRuntime(kitCommit: pins.kitCommit, release: pins.prerelease)

@@ -1,5 +1,19 @@
 import Foundation
 
+enum CheckedResources {
+    /// Standalone CLIs carry an adjacent bundle; app helpers use Contents/Resources.
+    /// Never consult SwiftPM's absolute development-path fallback.
+    static func bundle(executableURL: URL? = Bundle.main.executableURL) -> Bundle? {
+        guard let directory = executableURL?.deletingLastPathComponent() else { return nil }
+        var roots = [directory]
+        if directory.lastPathComponent == "Helpers",
+           directory.deletingLastPathComponent().lastPathComponent == "Contents" {
+            roots.append(directory.deletingLastPathComponent().appending(path: "Resources"))
+        }
+        return roots.compactMap { Bundle(url: $0.appending(path: "decant_decant.bundle")) }.first
+    }
+}
+
 struct RuntimeRelease: Codable, Equatable {
     var tag: String
     var version: String // The artifact's plist version, not its release identity.
@@ -42,12 +56,7 @@ struct RuntimePins: Codable {
     var prerelease: RuntimeRelease
 
     static func load(from explicitURL: URL? = nil) throws -> RuntimePins {
-        // Look next to a standalone CLI or at the app bundle root. Avoid the
-        // generated accessor's fatalError/development-path fallback if a
-        // packaged bundle is missing: no pins means no install.
-        let roots = [Bundle.main.executableURL?.deletingLastPathComponent(), Bundle.main.bundleURL].compactMap { $0 }
-        let bundled = roots.compactMap { Bundle(url: $0.appending(path: "decant_decant.bundle")) }
-            .compactMap { $0.url(forResource: "RuntimePins", withExtension: "json") }.first
+        let bundled = CheckedResources.bundle()?.url(forResource: "RuntimePins", withExtension: "json")
         guard let url = explicitURL ?? bundled else {
             throw DecantError("bundled runtime pins missing")
         }
