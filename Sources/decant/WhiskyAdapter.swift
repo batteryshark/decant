@@ -106,7 +106,7 @@ enum Kit {
     static func redeployGPTK(store: URL, library: URL, replaceHandPlaced: Bool = false,
                             verify: () throws -> Void, deploy: () throws -> Void) throws {
         try verify() // Do not turn a damaged store into a successful no-op.
-        guard replaceHandPlaced || !GPTKImporter.holdsHandPlacedPayload(inLibraryFolder: library, usingStore: store) else { return }
+        guard try replaceHandPlaced || GPTKImporter.permitsAutomaticDeployment(inLibraryFolder: library, usingStore: store) else { return }
         try deploy()
     }
 

@@ -1,5 +1,5 @@
 diff --git a/WhiskyKit/Sources/WhiskyKit/WhiskyWine/GPTKImporter+InterposerPolicy.swift b/WhiskyKit/Sources/WhiskyKit/WhiskyWine/GPTKImporter+InterposerPolicy.swift
-index 3d98a7a0..7f16fae4 100644
+index 3d98a7a0..c62e5865 100644
 --- a/WhiskyKit/Sources/WhiskyKit/WhiskyWine/GPTKImporter+InterposerPolicy.swift
 +++ b/WhiskyKit/Sources/WhiskyKit/WhiskyWine/GPTKImporter+InterposerPolicy.swift
 @@ -32,7 +32,7 @@ import Foundation
@@ -11,7 +11,7 @@ index 3d98a7a0..7f16fae4 100644
  
      /// Whether the interposers may go in front of a payload of `version`.
      ///
-@@ -80,6 +80,6 @@ extension GPTKImporter {
+@@ -80,8 +80,32 @@ extension GPTKImporter {
      /// Whether `folder`'s runtime holds a payload `store` did not deploy: one
      /// copied in by hand. Nothing the app runs on its own installs into it or
      /// deploys over it; importing a payload is what replaces it.
@@ -19,7 +19,34 @@ index 3d98a7a0..7f16fae4 100644
 +    public static func holdsHandPlacedPayload(inLibraryFolder folder: URL, usingStore store: URL) -> Bool {
          isDeployed(inLibraryFolder: folder) && !isStorePayloadDeployed(inLibraryFolder: folder, usingStore: store)
      }
-@@ -136,7 +136,11 @@ extension GPTKImporter {
+-
++
++    /// Automatic repair may fill missing forwarders, but must never replace
++    /// differing ones. The caller must verify the store before this check.
++    public static func permitsAutomaticDeployment(inLibraryFolder folder: URL, usingStore store: URL) throws -> Bool {
++        guard isDeployed(inLibraryFolder: folder) else { return true }
++        let peDir = folder.appending(path: "Wine/lib/wine/x86_64-windows")
++        let interposed = Set(interposers.map(\.slotName))
++        var matches = 0
++        for name in forwarderDLLNames where !interposed.contains(name) {
++            let slot = peDir.appending(path: name)
++            // A dangling link is differing evidence, not a missing managed file.
++            let exists = FileManager.default.fileExists(atPath: slot.path)
++                || (try? FileManager.default.destinationOfSymbolicLink(atPath: slot.path)) != nil
++            guard exists else { continue }
++            guard isGPTKForwarder(slot, matching: store.appending(path: "lib")) else { return false }
++            matches += 1
++        }
++        guard matches > 0 else {
++            throw NSError(domain: "GPTKDeploymentOwnership", code: 1, userInfo: [
++                NSLocalizedDescriptionKey: "GPTK deployment ownership is ambiguous: no managed forwarder remains; explicitly import to replace"
++            ])
++        }
++        return true
++    }
++
+     // MARK: - Launch
+@@ -136,7 +160,11 @@ extension GPTKImporter {
              .appending(path: "x86_64-windows").appending(path: videoProcessorInterposer.slotName)
          let slotIsDeploys = isVideoProcessorInstalled(inLibraryFolder: folder)
              || isGPTKForwarder(slot, matching: store.appending(path: "lib"))

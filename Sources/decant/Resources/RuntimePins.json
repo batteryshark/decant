@@ -1,6 +1,6 @@
 {
   "kitCommit": "3abfbae945e3400caaa13cf2e78fe5a187a1405b",
-  "kitPatch": {"path": "patches/whiskykit-beta3-v1.patch", "sha256": "55e10623f312302c446037c842c5c206dd8b9e4444fa6c192969c01f8d3c5deb"},
+  "kitPatch": {"path": "patches/whiskykit-beta3-v1.patch", "sha256": "0d601a3bbff2ced8bd519253a306f9e087d6923c1a9e3b829a2e4a3099a6145b"},
   "shim": {
     "repository": "batteryshark/winecx-gptk",
     "commit": "2ca297137f8d31c4e8a9367a5c77ae40a5d9b3c2",

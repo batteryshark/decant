@@ -19,7 +19,8 @@ final class ReconciliationTests: XCTestCase {
             let library = root.appending(path: "Libraries"), store = root.appending(path: "store")
             let bridge = library.appending(path: "Wine/lib/wine/x86_64-unix/dxgi.so")
             let payload = library.appending(path: "Wine/lib/external/libd3dshared.dylib")
-            for file in [bridge, payload] {
+            let differing = library.appending(path: "Wine/lib/wine/x86_64-windows/d3d11.dll")
+            for file in [bridge, payload, differing] {
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try Data("hand placed".utf8).write(to: file)
             }
@@ -78,6 +79,57 @@ final class ReconciliationTests: XCTestCase {
                 stage: stage, redeploy: { deploys += 1 })
             XCTAssertEqual(deploys, 3)
             XCTAssertEqual(try InstalledRuntime.read(at: identity), installed)
+        }
+    }
+
+    func testPartialManagedDeployRestoresMissingForwarderOnRetry() throws {
+        try fixture { root, pins, installed in
+            let library = root.appending(path: "Libraries"), store = root.appending(path: "store")
+            let pe = library.appending(path: "Wine/lib/wine/x86_64-windows")
+            let storedPE = store.appending(path: "lib/wine/x86_64-windows")
+            let identity = root.appending(path: "identity.json")
+            for directory in [pe, storedPE, library.appending(path: "Wine/lib/external"),
+                              library.appending(path: "Wine/lib/wine/x86_64-unix")] {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            }
+            for name in ["d3d10.dll", "d3d11.dll"] {
+                let bytes = Data("stored \(name)".utf8)
+                try bytes.write(to: storedPE.appending(path: name))
+                try bytes.write(to: pe.appending(path: name))
+            }
+            try Data("bridge".utf8).write(to: library.appending(path: "Wine/lib/wine/x86_64-unix/dxgi.so"))
+            try Data("shared".utf8).write(to: library.appending(path: "Wine/lib/external/libd3dshared.dylib"))
+            let missing = pe.appending(path: "d3d10.dll")
+            var deploys = 0
+            @MainActor func reconcile(_ record: InstalledRuntime, first: Bool) throws {
+                try Runtime.reconcile(record, pins: pins, identityURL: identity, stage: { first }, redeploy: {
+                    try Kit.redeployGPTK(store: store, library: library, verify: {}, deploy: {
+                        deploys += 1
+                        if first {
+                            try FileManager.default.removeItem(at: missing)
+                            throw DecantError("copy failed after removing managed d3d10")
+                        }
+                        XCTAssertNil(try InstalledRuntime.read(at: identity)?.shimSHA256)
+                        try FileManager.default.copyItem(at: storedPE.appending(path: "d3d10.dll"), to: missing)
+                    })
+                })
+            }
+            XCTAssertThrowsError(try reconcile(installed, first: true))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path))
+            let pending = try XCTUnwrap(InstalledRuntime.read(at: identity))
+            XCTAssertEqual(pending.release, installed.release)
+            XCTAssertNil(pending.shimSHA256)
+            try reconcile(pending, first: false)
+            XCTAssertEqual(deploys, 2)
+            XCTAssertEqual(try Data(contentsOf: missing), try Data(contentsOf: storedPE.appending(path: "d3d10.dll")))
+            XCTAssertEqual(try InstalledRuntime.read(at: identity), installed)
+            // Neither missing file alone establishes ownership when all evidence is gone.
+            try FileManager.default.removeItem(at: missing)
+            try FileManager.default.removeItem(at: pe.appending(path: "d3d11.dll"))
+            XCTAssertThrowsError(try reconcile(pending, first: false))
+            XCTAssertEqual(deploys, 2)
+            XCTAssertNil(try InstalledRuntime.read(at: identity)?.shimSHA256)
+            XCTAssertEqual(try InstalledRuntime.read(at: identity)?.release, installed.release)
         }
     }
 }
