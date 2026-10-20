@@ -79,18 +79,32 @@ enum Runtime {
     }
 
     private static func reconcile(_ installed: InstalledRuntime, pins: RuntimePins) throws {
+        try reconcile(installed, pins: pins, identityURL: Kit.runtimeIdentityURL,
+            stage: Kit.stageCompatibilityShim, redeploy: { try Kit.redeployGPTK() })
+    }
+
+    /// The production reconciliation path, with filesystem/effect seams for owned fixtures.
+    static func reconcile(_ installed: InstalledRuntime, pins: RuntimePins, identityURL: URL,
+                          stage: () throws -> Bool, redeploy: () throws -> Void) throws {
         guard [pins.stable, pins.prerelease].contains(installed.release) else {
             throw DecantError("installed runtime is not a reviewed pair")
         }
-        let changed = try Kit.stageCompatibilityShim()
-        guard changed || installed.kitCommit != pins.kitCommit || installed.kitPatchSHA256 != pins.kitPatch.sha256
-                || installed.shimSHA256 != pins.shim.sha256 else { return }
-        try Kit.redeployGPTK()
+        // Keep exact release provenance while marking compatibility incomplete BEFORE
+        // any staging/deploy effects. A throw or interruption must remain retryable.
+        var pending = installed
+        pending.kitPatchSHA256 = nil
+        pending.shimSHA256 = nil
+        try pending.write(to: identityURL)
+        let changed = try stage()
+        if changed || installed.kitCommit != pins.kitCommit || installed.kitPatchSHA256 != pins.kitPatch.sha256
+                || installed.shimSHA256 != pins.shim.sha256 {
+            try redeploy()
+        }
         var checked = installed
         checked.kitCommit = pins.kitCommit
         checked.kitPatchSHA256 = pins.kitPatch.sha256
         checked.shimSHA256 = pins.shim.sha256
-        try checked.write(to: Kit.runtimeIdentityURL)
+        try checked.write(to: identityURL)
     }
 
     private static func fetch(_ url: URL) async throws -> Data {

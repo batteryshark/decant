@@ -61,7 +61,7 @@ enum Kit {
         try Runtime.installAndRestore(install: {
             try WhiskyWineInstaller.install(from: tarball)
             try stageCompatibilityShim()
-        }, restore: redeployGPTK)
+        }, restore: { try redeployGPTK() })
     }
 
     @discardableResult
@@ -88,13 +88,26 @@ enum Kit {
         return true
     }
 
-    static func redeployGPTK() throws {
+    static func redeployGPTK(replaceHandPlaced: Bool = false) throws {
         guard GPTKImporter.isRuntimeGPTKCapable() else { return }
         try stageCompatibilityShim()
         // A damaged store must fail rather than be mistaken for no import.
         guard FileManager.default.fileExists(atPath: GPTKImporter.storeFolder.path) else { return }
-        try GPTKImporter.deployStoredPayload()
+        try redeployGPTK(store: GPTKImporter.storeFolder, library: WhiskyWineInstaller.libraryFolder,
+            replaceHandPlaced: replaceHandPlaced, verify: {
+                guard GPTKImporter.verifyStoredPayload() == .verified else {
+                    throw DecantError("stored GPTK payload is missing, damaged or unverified")
+                }
+            }, deploy: { try GPTKImporter.deployStoredPayload() })
         guard GPTKImporter.isDeployed() else { throw DecantError("GPTK deployment incomplete") }
+    }
+
+    /// Same guarded policy for production and temporary-fixture reconciliation.
+    static func redeployGPTK(store: URL, library: URL, replaceHandPlaced: Bool = false,
+                            verify: () throws -> Void, deploy: () throws -> Void) throws {
+        try verify() // Do not turn a damaged store into a successful no-op.
+        guard replaceHandPlaced || !GPTKImporter.holdsHandPlacedPayload(inLibraryFolder: library, usingStore: store) else { return }
+        try deploy()
     }
 
     static func importGPTK(_ source: URL) throws {
@@ -103,7 +116,7 @@ enum Kit {
             let payload = try GPTKImporter.validatePayload(at: root)
             let record = try GPTKImporter.importPayload(payload)
             print("imported local Apple GPTK \(record.gptkVersion)")
-            try redeployGPTK()
+            try redeployGPTK(replaceHandPlaced: true)
             print(GPTKImporter.isRuntimeGPTKCapable() ? "GPTK deployed" : "payload retained; installed runtime is not GPTK-capable")
         }
     }

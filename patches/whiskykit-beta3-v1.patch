@@ -1,5 +1,5 @@
 diff --git a/WhiskyKit/Sources/WhiskyKit/WhiskyWine/GPTKImporter+InterposerPolicy.swift b/WhiskyKit/Sources/WhiskyKit/WhiskyWine/GPTKImporter+InterposerPolicy.swift
-index 3d98a7a0..eb98837c 100644
+index 3d98a7a0..7f16fae4 100644
 --- a/WhiskyKit/Sources/WhiskyKit/WhiskyWine/GPTKImporter+InterposerPolicy.swift
 +++ b/WhiskyKit/Sources/WhiskyKit/WhiskyWine/GPTKImporter+InterposerPolicy.swift
 @@ -32,7 +32,7 @@ import Foundation
@@ -11,6 +11,14 @@ index 3d98a7a0..eb98837c 100644
  
      /// Whether the interposers may go in front of a payload of `version`.
      ///
+@@ -80,6 +80,6 @@ extension GPTKImporter {
+     /// Whether `folder`'s runtime holds a payload `store` did not deploy: one
+     /// copied in by hand. Nothing the app runs on its own installs into it or
+     /// deploys over it; importing a payload is what replaces it.
+-    static func holdsHandPlacedPayload(inLibraryFolder folder: URL, usingStore store: URL) -> Bool {
++    public static func holdsHandPlacedPayload(inLibraryFolder folder: URL, usingStore store: URL) -> Bool {
+         isDeployed(inLibraryFolder: folder) && !isStorePayloadDeployed(inLibraryFolder: folder, usingStore: store)
+     }
 @@ -136,7 +136,11 @@ extension GPTKImporter {
              .appending(path: "x86_64-windows").appending(path: videoProcessorInterposer.slotName)
          let slotIsDeploys = isVideoProcessorInstalled(inLibraryFolder: folder)
