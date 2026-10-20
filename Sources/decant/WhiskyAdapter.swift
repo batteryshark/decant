@@ -36,7 +36,66 @@ enum Kit {
 
     static func sha256(of file: URL) -> String? { WhiskyWineInstaller.sha256(ofFileAt: file) }
 
-    static func installRuntime(tarball: URL) throws { try WhiskyWineInstaller.install(from: tarball) }
+    static func installRuntime(tarball: URL) throws {
+        // The store is outside Libraries; the deployed copy was just wiped.
+        try Runtime.installAndRestore(install: { try WhiskyWineInstaller.install(from: tarball) }, restore: redeployGPTK)
+    }
+
+    static func redeployGPTK() throws {
+        guard GPTKImporter.isRuntimeGPTKCapable() else { return }
+        // A damaged store must fail rather than be mistaken for no import.
+        guard FileManager.default.fileExists(atPath: GPTKImporter.storeFolder.path) else { return }
+        try GPTKImporter.deployStoredPayload()
+        guard GPTKImporter.isDeployed() else { throw DecantError("GPTK deployment incomplete") }
+    }
+
+    static func importGPTK(_ source: URL) throws {
+        try GPTKDiskImage.withPayload(at: source, locate: GPTKImporter.locatePayload(under:)) { root in
+            let payload = try GPTKImporter.validatePayload(at: root)
+            let record = try GPTKImporter.importPayload(payload)
+            print("imported local Apple GPTK \(record.gptkVersion)")
+            try redeployGPTK()
+            print(GPTKImporter.isRuntimeGPTKCapable() ? "GPTK deployed" : "payload retained; installed runtime is not GPTK-capable")
+        }
+    }
+
+    /// Read-only validation seam for opt-in tests against an original Apple DMG.
+    static func validateGPTK(_ source: URL) throws -> String {
+        try GPTKDiskImage.withPayload(at: source, locate: GPTKImporter.locatePayload(under:)) {
+            try GPTKImporter.validatePayload(at: $0).version
+        }
+    }
+
+    static func localStatus() -> [String] {
+        let record = GPTKImporter.storedRecord()
+        let storeExists = FileManager.default.fileExists(atPath: GPTKImporter.storeFolder.path)
+        return [
+            "GPTK stored: " + (record?.gptkVersion ?? (storeExists ? "incomplete/unreadable" : "none")),
+            "runtime GPTK-capable: \(GPTKImporter.isRuntimeGPTKCapable())",
+            "GPTK deployed: \(GPTKImporter.isDeployed())",
+            "available backends: " + GraphicsBackend.allCases.filter { backendAvailable($0) }.map(\.rawValue).joined(separator: ", ")
+        ]
+    }
+
+    private static func backendAvailable(_ backend: GraphicsBackend) -> Bool {
+        guard installedRuntime() != nil else { return false }
+        if backend == .d3dMetal {
+            let lib = WhiskyWineInstaller.libraryFolder.appending(path: "Wine/lib")
+            let required = ["external/D3DMetal.framework", "external/libd3dshared.dylib", "wine/x86_64-unix/dxgi.so"]
+                + ["d3d10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll"].map { "wine/x86_64-windows/\($0)" }
+            return GPTKImporter.isRuntimeGPTKCapable() && required.allSatisfy {
+                FileManager.default.fileExists(atPath: lib.appending(path: $0).path)
+            }
+        }
+        return WhiskyWineInstaller.isBackendAvailable(backend)
+    }
+
+    static func validateBackend(_ backend: String) throws {
+        guard let gfx = GraphicsBackend(rawValue: backend) else { throw DecantError("invalid backend: \(backend)") }
+        guard backendAvailable(gfx) else {
+            throw DecantError("backend \(backend) unavailable; check 'decant runtime status' (D3DMetal needs a GPTK-capable runtime and local import)")
+        }
+    }
 
     static func isBottle(_ url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.appending(path: "Metadata.plist").path(percentEncoded: false))
@@ -48,7 +107,9 @@ enum Kit {
 
     static func describe(_ url: URL) -> String {
         let s = Bottle(bottleUrl: url, isAvailable: true).settings
-        return "\(s.name)\twindows=\(s.windowsVersion.rawValue)\tbackend=\(s.graphicsBackend.rawValue)"
+        let requested = s.graphicsBackend
+        let effective = requested == .recommended ? GraphicsBackendResolver.resolve() : requested
+        return "\(s.name)\twindows=\(s.windowsVersion.rawValue)\trequested=\(requested.rawValue)\teffective=\(backendAvailable(effective) ? effective.rawValue : "unavailable")"
     }
 
     /// Writes Metadata.plist only; the Wine prefix is created on first launch.
@@ -61,6 +122,7 @@ enum Kit {
     }
 
     static func setBackend(_ backend: String, bottle url: URL) throws {
+        try validateBackend(backend)
         guard let gfx = GraphicsBackend(rawValue: backend) else { throw DecantError("invalid backend: \(backend)") }
         Bottle(bottleUrl: url, isAvailable: true).settings.graphicsBackend = gfx
     }
@@ -81,11 +143,66 @@ enum Kit {
     /// beats WhiskyKit's own values (e.g. WINEDEBUG).
     static func prepareLaunch(exe: URL, args: [String], bottle url: URL, extraEnv: [String: String]) async throws -> String {
         let bottle = Bottle(bottleUrl: url, isAvailable: true)
-        let command = try await Program(url: exe, bottle: bottle).prepareTerminalCommand(args: args)
+        let program = Program(url: exe, bottle: bottle)
+        let requested = program.settings.overrides?.graphicsBackend ?? bottle.settings.graphicsBackend
+        let effective = requested == .recommended ? GraphicsBackendResolver.resolve(for: LauncherType.detect(from: exe)) : requested
+        try validateBackend(effective.rawValue)
+        let usesDXVK = effective == .dxvk || (program.settings.overrides?.graphicsBackend == nil && program.settings.overrides?.dxvk == true)
+            || (bottle.settings.autoEnableDXVK && bottle.settings.detectedLauncher?.requiresDXVK == true)
+        guard !usesDXVK || effective == .dxvk else {
+            throw DecantError("backend \(effective.rawValue) conflicts with a saved launcher/program DXVK override; use a separate bottle")
+        }
+        if effective == .dxmt { try protectDLLs(in: url, backend: "DXMT") }
+        if usesDXVK { try protectDLLs(in: url, backend: "DXVK") }
+        // Bottle-level D3DMetal/wined3d presets do not override leftover native
+        // DXMT/DXVK files. Restore only byte-identical managed copies, never a
+        // user's custom native DLL. DXMT also needs DXVK's d3d9 neutralized.
+        if !usesDXVK {
+            let names = effective == .dxmt ? ["d3d9.dll"] : ["d3d9.dll", "d3d10.dll", "d3d10_1.dll", "d3d10core.dll", "d3d11.dll", "dxgi.dll"]
+            for (directory, arch, wineArch) in [("system32", "x64", "x86_64-windows"), ("syswow64", "x32", "i386-windows")] {
+                for name in names {
+                    let libraries = WhiskyWineInstaller.libraryFolder
+                    try BackendSafety.restoreBuiltin(url.appending(path: "drive_c/windows/\(directory)/\(name)"),
+                        from: libraries.appending(path: "Wine/lib/wine/\(wineArch)/\(name)"),
+                        knownCopies: ["DXMT", "DXVK"].map { libraries.appending(path: "\($0)/\(arch)/\(name)") },
+                        strippedBuiltin: name == "dxgi.dll" ? GPTKImporter.storeFolder.appending(path: "originals/dxgi.dll") : nil)
+                }
+            }
+        }
+        if effective == .d3dMetal {
+            // Public upstream maintenance hook; placeholder copies below are
+            // missing-only, matching upstream's policy for older prefixes.
+            GPTKImporter.ensureVideoProcessorInstalled(bottles: [url])
+            try BackendSafety.seedPlaceholders(
+                system32: url.appending(path: "drive_c/windows/system32"),
+                runtimePE: WhiskyWineInstaller.libraryFolder.appending(path: "Wine/lib/wine/x86_64-windows"))
+        }
+        let command = try await program.prepareTerminalCommand(args: args)
         guard !extraEnv.isEmpty else { return command }
         let wine = Wine.wineBinary.path(percentEncoded: false).esc
         guard let range = command.range(of: wine) else { throw DecantError("cannot inject env into: \(command)") }
         let assignments = extraEnv.map { "\($0.key)=\($0.value.esc)" }.joined(separator: " ")
         return command.replacingCharacters(in: range, with: "/usr/bin/env \(assignments) \(wine)")
+    }
+
+    private static func protectDLLs(in prefix: URL, backend: String) throws {
+        let libraries = WhiskyWineInstaller.libraryFolder
+        for (directory, arch) in [("system32", "x64"), ("syswow64", "x32")] {
+            let payload = libraries.appending(path: "\(backend)/\(arch)")
+            let files: [URL]
+            if backend == "DXMT" {
+                files = ["d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"].map { payload.appending(path: $0) }
+            } else {
+                let enumerator = FileManager.default.enumerator(at: payload, includingPropertiesForKeys: nil)
+                files = (enumerator?.allObjects as? [URL] ?? []).filter { $0.pathExtension == "dll" }
+            }
+            let names = Set(files.map(\.lastPathComponent) + (backend == "DXVK" ? ["dxgi.dll"] : []))
+            for name in names {
+                let known = ["DXMT", "DXVK"].map { libraries.appending(path: "\($0)/\(arch)/\(name)") }
+                    + files.filter { $0.lastPathComponent == name }
+                try BackendSafety.checkReplacement(prefix.appending(path: "drive_c/windows/\(directory)/\(name)"), knownCopies: known,
+                    strippedBuiltin: name == "dxgi.dll" ? GPTKImporter.storeFolder.appending(path: "originals/dxgi.dll") : nil)
+            }
+        }
     }
 }

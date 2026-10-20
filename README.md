@@ -39,7 +39,9 @@ Needs Swift 6, macOS 15+ and Rosetta 2.
 
 ```sh
 decant runtime update [--prerelease] [--force]   # download, sha256-verify, install
-decant runtime status [--prerelease]
+decant runtime status                         # local only; no download or Wine
+decant runtime status --check [--prerelease]   # also check releases online
+decant runtime import-gptk <dmg-or-dir>        # original local Apple download
 
 decant app.exe [args...]              # run in bottle "Default", created on first use
 decant setup.msi [args...]            # msiexec /i setup.msi [args...]
@@ -85,6 +87,26 @@ New bottles are a 64-bit prefix with WoW64, so 32-bit programs run too. They rep
 Windows 10 and use DXMT for D3D10/11. D3D9 and older stay on Wine's wined3d. DXMT's
 32-bit DLLs go into `syswow64`, so 32-bit D3D11 programs get Metal as well.
 
+### Optional D3DMetal
+
+Supply your own original Apple Game Porting Toolkit DMG, mounted evaluation
+environment, or `redist/lib` folder with `runtime import-gptk`. Images are mounted
+readonly without browsing, including the outer toolkit's single top-level
+evaluation-environment image. Payloads must pass WhiskyKit's Apple-signature
+validation. No Apple binaries are distributed by decant.
+
+The imported payload is stored outside the runtime, survives runtime reinstalls,
+and is redeployed after installing a GPTK-capable runtime. An incapable runtime
+keeps the import stored but undeployed. A redeploy failure is an error, not an
+installation success. `runtime status` distinguishes stored, capable and deployed.
+
+Use `bottles set NAME --backend d3dMetal` (or `dxmt`, `dxvk`, `wined3d`). An explicit
+unavailable backend fails instead of silently falling back. Backend changes take
+effect on the next launch, not in an already running program. Bottle listings show
+requested and effective availability; per-program overrides can differ. Switching
+restores only recognized runtime DLL copies; custom DLLs are preserved and a
+conflicting replacement fails with advice to use a separate bottle.
+
 ## Files
 
 The bundle ID `io.github.batteryshark.decant` is embedded in the binary from
@@ -92,6 +114,7 @@ The bundle ID `io.github.batteryshark.decant` is embedded in the binary from
 
 - Runtime: `~/Library/Application Support/io.github.batteryshark.decant/Libraries/`
 - Bottles: `~/Library/Application Support/io.github.batteryshark.decant/Bottles/<name>/`
+- Imported GPTK: `~/Library/Application Support/io.github.batteryshark.decant/D3DMetal/`
 - Logs, one per launch: `~/Library/Logs/io.github.batteryshark.decant/`
 
 `Sources/decant/WhiskyAdapter.swift` is the only file that imports WhiskyKit.
@@ -99,6 +122,11 @@ The bundle ID `io.github.batteryshark.decant` is embedded in the binary from
 for `assets/AppIcon.icns`.
 `tests/` holds two small Windows programs, `sysinfo.c` and `d3d11test.c`, for checking a
 runtime. Build them with `tests/build.sh`, which needs `zig`.
+
+Non-Wine checks: `swift test --jobs 4`. `UnitTests/` uses temporary fixtures and
+does not install a runtime or touch real bottles. To additionally validate an
+original Apple DMG readonly, set `DECANT_TEST_GPTK_PATH` to its local path when
+running the tests. This does not import or deploy the payload.
 
 ## Bumping WhiskyKit (always together with the runtime)
 

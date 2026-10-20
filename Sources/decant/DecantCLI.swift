@@ -11,7 +11,9 @@ usage:
   decant bottles list
   decant bottles create NAME [--windows VER] [--backend B]
   decant bottles set NAME [--windows VER] [--backend B]
-  decant runtime status|update [--prerelease] [--force]
+  decant runtime status [--check] [--prerelease]
+  decant runtime update [--prerelease] [--force]
+  decant runtime import-gptk <dmg-or-dir>
 
   VER: winxp64 win7 win8 win81 win10 win11    B: dxmt dxvk d3dMetal wined3d recommended
 """
@@ -40,22 +42,30 @@ func parse(_ args: [String], valued: Set<String>, flags: Set<String> = [], stopA
 }
 
 @MainActor
-func main(_ argv: [String]) async throws {
+func runCLI(_ argv: [String]) async throws {
     switch argv.first {
     case nil, "-h", "--help":
         print(usage)
     case "runtime":
-        let o = try parse(Array(argv.dropFirst()), valued: [], flags: ["--prerelease", "--force"])
+        if argv.dropFirst().first == "import-gptk" {
+            guard argv.count == 3, !argv[2].hasPrefix("--") else { throw DecantError(usage) }
+            try Kit.importGPTK(URL(filePath: argv[2]).standardizedFileURL)
+            return
+        }
+        let o = try parse(Array(argv.dropFirst()), valued: [], flags: ["--prerelease", "--force", "--check"])
         let pre = o.flags.contains("--prerelease")
         switch o.rest {
-        case ["status"]: try await Runtime.status(prerelease: pre)
-        case ["update"]: try await Runtime.update(prerelease: pre, force: o.flags.contains("--force"))
+        case ["status"] where !o.flags.contains("--force"):
+            try await Runtime.status(prerelease: pre, check: o.flags.contains("--check"))
+        case ["update"] where !o.flags.contains("--check"):
+            try await Runtime.update(prerelease: pre, force: o.flags.contains("--force"))
         default: throw DecantError(usage)
         }
     case "bottles":
         let o = try parse(Array(argv.dropFirst()), valued: ["--windows", "--backend"])
         guard o.rest == ["list"] || (o.rest.count == 2 && ["create", "set"].contains(o.rest[0])) else { throw DecantError(usage) }
         if o.rest[0] != "list" {
+            if let b = o.values["--backend"]?.last { try Kit.validateBackend(b) }
             let url = try Bottles.open(o.rest[1], create: o.rest[0] == "create")
             if let b = o.values["--backend"]?.last { try Kit.setBackend(b, bottle: url) }
             if let w = o.values["--windows"]?.last { try await Kit.setWindowsVersion(w, bottle: url) }
@@ -75,9 +85,14 @@ func main(_ argv: [String]) async throws {
     }
 }
 
-do {
-    try await main(Array(CommandLine.arguments.dropFirst()))
-} catch {
-    FileHandle.standardError.write(Data("decant: \(error)\n".utf8))
-    exit(1)
+@main
+struct DecantCLI {
+    static func main() async {
+        do {
+            try await runCLI(Array(CommandLine.arguments.dropFirst()))
+        } catch {
+            FileHandle.standardError.write(Data("decant: \(error)\n".utf8))
+            exit(1)
+        }
+    }
 }
