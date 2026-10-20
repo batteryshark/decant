@@ -44,6 +44,17 @@ int main(int argc, char **argv) {
     module_path(f, "wined3d.dll");
     if (FAILED(hr)) return fclose(f), 2;
 
+    // DXVK v1.10.3 src/d3d11/d3d11_interfaces.h: query the returned
+    // device itself, not a loaded module or the factory's adapter.
+    static const GUID dxvk_ext_device = {
+        0x8a6e3c42, 0xf74c, 0x45b7, {0x82, 0x65, 0xa2, 0x31, 0xb6, 0x77, 0xca, 0x17}
+    };
+    IUnknown *ext = NULL;
+    HRESULT ext_hr = ID3D11Device_QueryInterface(dev, &dxvk_ext_device, (void **)&ext);
+    fprintf(f, "returned device QI ID3D11VkExtDevice (8a6e3c42-f74c-45b7-8265-a231b677ca17): hr=0x%08lx nonnull=%d\n",
+            (unsigned long)ext_hr, ext != NULL);
+    if (ext) IUnknown_Release(ext);
+
     IDXGIDevice *dxgidev;
     IDXGIAdapter *adapter;
     DXGI_ADAPTER_DESC desc;
@@ -75,8 +86,12 @@ int main(int argc, char **argv) {
     ID3D11DeviceContext_CopyResource(ctx, (ID3D11Resource *)staging, (ID3D11Resource *)back);
     D3D11_MAPPED_SUBRESOURCE map;
     unsigned int pixel = 0;
-    if (SUCCEEDED(ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)staging, 0, D3D11_MAP_READ, 0, &map)))
+    HRESULT map_hr = ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)staging, 0, D3D11_MAP_READ, 0, &map);
+    fprintf(f, "readback Map: hr=0x%08lx\n", (unsigned long)map_hr);
+    if (SUCCEEDED(map_hr)) {
         pixel = *(unsigned int *)map.pData;
+        ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)staging, 0);
+    }
     fprintf(f, "frames presented in 3 s: %d\nreadback pixel: 0x%08x (expect 0xff0080ff)\n", frames, pixel);
     return fclose(f);
 }
