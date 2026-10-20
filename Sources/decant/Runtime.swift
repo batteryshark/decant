@@ -19,6 +19,7 @@ enum Runtime {
             print("checked release: " + (record.map { "\($0.release.tag) sha256=\($0.release.sha256) kit=\($0.kitCommit)\(cur?.version == $0.release.version ? "" : " (plist mismatch)")" } ?? "unknown (legacy/untracked)"))
         } catch { print("checked release: unreadable (\(error))") }
         print("reviewed stable: \(pins.stable.tag); prerelease: \(pins.prerelease.tag); kit: \(pins.kitCommit)")
+        print("reviewed compatibility: kit-patch=\(pins.kitPatch.sha256) shim=\(pins.shim.sha256)")
         Kit.localStatus().forEach { print($0) }
         guard check else { return }
         let rel = prerelease ? pins.prerelease : pins.stable
@@ -29,10 +30,17 @@ enum Runtime {
     static func update(prerelease: Bool, force: Bool) async throws {
         let pins = try RuntimePins.load()
         let rel = prerelease ? pins.prerelease : pins.stable
-        let target = InstalledRuntime(kitCommit: pins.kitCommit, release: rel)
+        let target = InstalledRuntime(kitCommit: pins.kitCommit, release: rel,
+            kitPatchSHA256: pins.kitPatch.sha256, shimSHA256: pins.shim.sha256)
         let installed = force ? nil : try InstalledRuntime.read(at: Kit.runtimeIdentityURL)
         let cur = Kit.installedRuntime()
         if let installed, let cur { try Kit.validateRuntimeInfo(cur, release: installed.release) }
+        if let installed, cur?.version == installed.release.version,
+           installed.release == rel || (installed.release.prerelease && !rel.prerelease) {
+            try reconcile(installed, pins: pins)
+            print(installed.release == rel ? "reviewed runtime \(rel.tag) is already installed; compatibility checked" : "retaining checked prerelease; compatibility checked")
+            return
+        }
         switch try RuntimeDecision.update(target: target, installed: installed, version: cur?.version, force: force) {
         case .current: print("reviewed runtime \(rel.tag) is already installed"); return
         case .retainPrerelease: print("retaining checked prerelease; use --force for an explicit stable replacement"); return
@@ -66,6 +74,23 @@ enum Runtime {
         let release = try RuntimeDecision.launchRelease(pins: pins,
             installed: InstalledRuntime.read(at: Kit.runtimeIdentityURL), version: cur.version)
         try Kit.validateRuntimeInfo(cur, release: release)
+        try reconcile(try InstalledRuntime.read(at: Kit.runtimeIdentityURL)
+            ?? InstalledRuntime(kitCommit: pins.kitCommit, release: release), pins: pins)
+    }
+
+    private static func reconcile(_ installed: InstalledRuntime, pins: RuntimePins) throws {
+        guard [pins.stable, pins.prerelease].contains(installed.release) else {
+            throw DecantError("installed runtime is not a reviewed pair")
+        }
+        let changed = try Kit.stageCompatibilityShim()
+        guard changed || installed.kitCommit != pins.kitCommit || installed.kitPatchSHA256 != pins.kitPatch.sha256
+                || installed.shimSHA256 != pins.shim.sha256 else { return }
+        try Kit.redeployGPTK()
+        var checked = installed
+        checked.kitCommit = pins.kitCommit
+        checked.kitPatchSHA256 = pins.kitPatch.sha256
+        checked.shimSHA256 = pins.shim.sha256
+        try checked.write(to: Kit.runtimeIdentityURL)
     }
 
     private static func fetch(_ url: URL) async throws -> Data {

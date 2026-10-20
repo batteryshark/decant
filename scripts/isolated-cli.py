@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from prepare import prepared, swift, check_bundle
 
 root = Path(__file__).resolve().parent.parent
 pins = json.loads((root / "Sources/decant/Resources/RuntimePins.json").read_text())
@@ -17,21 +18,22 @@ assert not subprocess.check_output(["git", "-C", vendor, "status", "--porcelain"
 parent = Path(tempfile.mkdtemp(prefix="decant-integration-"))
 copy = parent / "launcher"
 copy.mkdir()
-for name in ("Package.swift", "Package.resolved", "Sources", "Resources", "UnitTests"):
-    source, target = root / name, copy / name
-    if source.is_dir():
-        shutil.copytree(source, target)
-    else:
-        shutil.copy2(source, target)
-shutil.copytree(root / "vendor/Whisky/WhiskyKit", copy / "vendor/Whisky/WhiskyKit",
-                ignore=shutil.ignore_patterns(".build", ".git", ".swiftpm"))
 identifier = "io.github.batteryshark.decant.integration." + uuid.uuid4().hex
-plist_path = copy / "Resources/Info.plist"
-info = plistlib.loads(plist_path.read_bytes())
-info["CFBundleIdentifier"] = identifier
-plist_path.write_bytes(plistlib.dumps(info))
+with prepared():
+    for name in ("Package.swift", "Package.resolved", "Sources", "Resources", "UnitTests"):
+        source, target = root / name, copy / name
+        if source.is_dir():
+            shutil.copytree(source, target)
+        else:
+            shutil.copy2(source, target)
+    shutil.copytree(root / "vendor/Whisky/WhiskyKit", copy / "vendor/Whisky/WhiskyKit",
+                    ignore=shutil.ignore_patterns(".build", ".git", ".swiftpm"))
+    plist_path = copy / "Resources/Info.plist"
+    info = plistlib.loads(plist_path.read_bytes())
+    info["CFBundleIdentifier"] = identifier
+    plist_path.write_bytes(plistlib.dumps(info))
+    swift('build', cwd=copy)
 env = dict(os.environ, DEVELOPER_DIR=os.environ.get("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer"))
-subprocess.run(["swift", "build", "--build-system", "native", "--jobs", "4"], cwd=copy, env=env, check=True, timeout=600)
 binary = copy / ".build/debug/decant"
 paths = json.loads(subprocess.check_output([binary, "runtime", "paths"], env=env, text=True, timeout=15))
 assert paths["bundleID"] == identifier, "embedded bundle ID not honored"
@@ -45,6 +47,7 @@ relocated = parent / "relocated"
 relocated.mkdir()
 shutil.copy2(binary, relocated / "decant")
 shutil.copytree(copy / ".build/debug/decant_decant.bundle", relocated / "decant_decant.bundle")
+check_bundle(relocated / "decant_decant.bundle", copy / "Sources/decant/Resources/RuntimePins.json")
 status = subprocess.check_output([relocated / "decant", "runtime", "status", "--prerelease"], env=env, text=True, timeout=15)
 assert "installed: none" in status and pins["prerelease"]["tag"] in status, "isolated local status failed"
 assert not Path(paths["support"]).exists(), "local status unexpectedly wrote application data"

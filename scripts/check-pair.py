@@ -149,9 +149,12 @@ def main():
     # Optional Apple validation is a separate opt-in read-only check, not needed
     # to run this deterministic non-Wine pair gate.
     env.pop("DECANT_TEST_GPTK_PATH", None)
-    subprocess.run(["python3", "-m", "unittest", "discover", "-s", "scripts/tests"], cwd=ROOT, env=env, check=True, timeout=120)
-    subprocess.run(["swift", "test", "--build-system", "native", "--jobs", "4"], cwd=ROOT, env=env, check=True, timeout=600)
-    subprocess.run(["swift", "build", "--build-system", "native", "-c", "release", "--jobs", "4"], cwd=ROOT, env=env, check=True, timeout=600)
+    from prepare import prepared, swift
+    with prepared():
+        subprocess.run(["python3", "-m", "unittest", "discover", "-s", "scripts/tests"], cwd=ROOT, env=env, check=True, timeout=120)
+        swift("test")
+        swift("test", "--filter", "GPTKInterposerPolicyTests|GPTKInterposerTakeBackTests|GPTKHandPlacedPayloadTests", cwd=ROOT / "vendor/Whisky/WhiskyKit")
+        swift("build", "-c", "release")
     check_vendor(pins["kitCommit"])
     require(load_pins() == pins, "pins changed during checks")
     print("PAIR CHECK PASSED (static compatibility only; Wine integration still required)" if args.archive else "METADATA PREFLIGHT PASSED; artifact digest/layout not checked")

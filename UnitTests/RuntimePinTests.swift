@@ -43,6 +43,23 @@ final class RuntimePinTests: XCTestCase {
         }
     }
 
+    func testCompatibilityIdentityIsPartOfExactPair() throws {
+        let pins = try pins()
+        let old = InstalledRuntime(kitCommit: pins.kitCommit, release: pins.prerelease)
+        let checked = InstalledRuntime(kitCommit: pins.kitCommit, release: pins.prerelease,
+            kitPatchSHA256: pins.kitPatch.sha256, shimSHA256: pins.shim.sha256)
+        XCTAssertNotEqual(old, checked)
+        XCTAssertEqual(try RuntimeDecision.update(target: checked, installed: old,
+            version: old.release.version, force: false), .install)
+        XCTAssertEqual(try RuntimeDecision.update(target: checked, installed: checked,
+            version: checked.release.version, force: false), .current)
+        try fixture { root in
+            let path = root.appending(path: "checked.json")
+            try checked.write(to: path)
+            XCTAssertEqual(try InstalledRuntime.read(at: path), checked)
+        }
+    }
+
     func testLaunchRetainsCheckedPrereleaseAndLegacyStableOnly() throws {
         let pins = try pins()
         let installed = InstalledRuntime(kitCommit: pins.kitCommit, release: pins.prerelease)

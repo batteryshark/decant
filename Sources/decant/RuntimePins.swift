@@ -33,7 +33,11 @@ struct RuntimeRelease: Codable, Equatable {
 }
 
 struct RuntimePins: Codable {
+    struct Patch: Codable { var path: String; var sha256: String }
+    struct Shim: Codable { var file: String; var size: Int; var sha256: String }
     var kitCommit: String
+    var kitPatch: Patch
+    var shim: Shim
     var stable: RuntimeRelease
     var prerelease: RuntimeRelease
 
@@ -55,6 +59,9 @@ struct RuntimePins: Codable {
     func validate() throws {
         try stable.validate(); try prerelease.validate()
         guard kitCommit.range(of: #"^[0-9a-f]{40}$"#, options: .regularExpression) != nil,
+              kitPatch.sha256.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression) != nil,
+              shim.sha256.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression) != nil,
+              shim.file == "d3d12shim-4.0b3.dll", shim.size > 0,
               !stable.prerelease, prerelease.prerelease, stable != prerelease else {
             throw DecantError("invalid paired pins")
         }
@@ -66,6 +73,8 @@ struct RuntimePins: Codable {
 struct InstalledRuntime: Codable, Equatable {
     var kitCommit: String
     var release: RuntimeRelease
+    var kitPatchSHA256: String? = nil
+    var shimSHA256: String? = nil
 
     static func read(at url: URL) throws -> Self? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }

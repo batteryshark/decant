@@ -1,5 +1,24 @@
 {
   "kitCommit": "3abfbae945e3400caaa13cf2e78fe5a187a1405b",
+  "kitPatch": {"path": "patches/whiskykit-beta3-v1.patch", "sha256": "180546d70e14fa70e9108e0de69c6e16e2b4c3490da70d61fb21150a74c0c540"},
+  "shim": {
+    "repository": "batteryshark/winecx-gptk",
+    "commit": "2ca297137f8d31c4e8a9367a5c77ae40a5d9b3c2",
+    "sources": {
+      "d3d12shim.c": "94420063c1a194b6bd85d3ff123b03a1b95cc4d7f9671bac7be73c929023f787",
+      "d3d12shim.def": "a520ea877f2ba3faea6e202aec03f4852909a1ed5a78a01aa2b75f1dec7bad09",
+      "yuvblit.h": "fe6de98e1806833c768d09427f971a58b0e615de2f2820176c9f72e04dfa3854",
+      "d3d12shim-4.0b3.c": "5a29419c79e05157f1baa0381119038a66ac50f08a2f3ff15e2a0b9881caef95",
+      "d3d12shim-4.0b3.def": "409c4df281c216ddf30952048c7cfdcec2cfd5b720f74ad75e523332ec5b684f"
+    },
+    "compiler": "x86_64-w64-mingw32-gcc",
+    "compilerVersion": "16.2.0",
+    "compilerSHA256": "79708a2ac50166252c813e9f9cd38ef8c03aa82d68949aabd97cad53224fae80",
+    "mingw": "14.0.0_3",
+    "file": "d3d12shim-4.0b3.dll",
+    "size": 415654,
+    "sha256": "2e8f2b47b5b9ee3a7c4d95b2a2c2f14af009c5323514a6cfe89bfa3daf183688"
+  },
   "stable": {
     "tag": "v3.1.1",
     "version": "3.1.1",

@@ -30,7 +30,7 @@ that returns immediately.
 
 ```sh
 git submodule update --init      # vendor/Whisky at the pinned commit
-swift build -c release           # → .build/release/decant
+python3 scripts/prepare.py -c release  # → .build/release/decant
 ```
 
 Needs Swift 6, macOS 15+ and Rosetta 2.
@@ -129,7 +129,9 @@ for `assets/AppIcon.icns`.
 `tests/` holds two small Windows programs, `sysinfo.c` and `d3d11test.c`, for checking a
 runtime. Build them with `tests/build.sh`, which needs `zig`.
 
-Non-Wine checks: `swift test --jobs 4`. `UnitTests/` uses temporary fixtures and
+Non-Wine checks: `python3 scripts/check-pair.py --channel prerelease --metadata-only`.
+This runs launcher tests, the pure temporary-fixture dependency policy suites, and a release build.
+`UnitTests/` uses temporary fixtures and
 does not install a runtime or touch real bottles. To additionally validate an
 original Apple DMG readonly, set `DECANT_TEST_GPTK_PATH` to its local path when
 running the tests. This does not import or deploy the payload.

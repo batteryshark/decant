@@ -3,7 +3,7 @@
 # it and its "Run in Bottle…" service, and makes it this user's default for .exe and .msi.
 set -eu
 cd "$(dirname "$0")/.."
-swift build -c release
+python3 scripts/prepare.py -c release
 app=.build/Decant.app
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"

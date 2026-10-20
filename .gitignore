@@ -5,3 +5,4 @@ tests/out/
 .swiftpm/
 .DS_Store
 __pycache__/
+Sources/decant/Resources/d3d12shim-4.0b3.dll
