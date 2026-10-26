@@ -26,14 +26,28 @@ decant uses frankea/Whisky's runtime (Wine plus DXMT and DXVK-macOS) and its Whi
 library. It adds only the convenience layer: runtime install, bottles, and a launch command
 that returns immediately.
 
-## Build
+## Requirements and installation
+
+Requires an Apple Silicon Mac, macOS 15+, Swift 6, Python 3, Git and Rosetta 2.
 
 ```sh
+git clone https://github.com/batteryshark/decant.git
+cd decant
 git submodule update --init      # vendor/Whisky at the pinned commit
 python3 scripts/prepare.py -c release  # → .build/release/decant
 ```
 
-Needs Swift 6, macOS 15+ and Rosetta 2.
+Add `.build/release` to your `PATH`, or invoke `.build/release/decant` directly.
+
+## Quick start
+
+```sh
+.build/release/decant runtime update
+.build/release/decant /path/to/app.exe
+```
+
+The first launch creates the Default bottle. Use `--bottle NAME` for a separate
+Windows environment, and `--env KEY=VALUE` to configure a program's environment.
 
 ## Usage
 
@@ -136,57 +150,11 @@ does not install a runtime or touch real bottles. To additionally validate an
 original Apple DMG readonly, set `DECANT_TEST_GPTK_PATH` to its local path when
 running the tests. This does not import or deploy the payload.
 
-## Paired kit/runtime review
+## Documentation
 
-`Sources/decant/Resources/RuntimePins.json` is the sole machine-readable pin source
-for both CLI and checker: exact kit commit, stable/prerelease tag, archive digest,
-plist version and required backend capabilities. The current stable is 3.1.1 and
-the explicit prerelease is v4.6.4-beta.1 (whose plist says 4.6.4); both use the same
-reviewed kit. No runtime/kit pin changes are discovered or installed automatically.
-
-1. Review the upstream kit and release metadata. If changing kit, fetch and check
-   out the chosen commit in `vendor/Whisky` only after confirming it is clean.
-   Edit the JSON for the exact reviewed pairs; fix adapter/API changes as needed.
-   Obtain original runtime archives from the exact official release URLs, outside
-   the repo. Do not derive a digest from an unreviewed example.
-2. Run this gate for **each channel**, using its matching local archive:
-   ```sh
-   python3 scripts/check-pair.py --channel stable --archive /path/to/stable/Libraries.tar.gz
-   python3 scripts/check-pair.py --channel prerelease --archive /path/to/beta/Libraries.tar.gz
-   ```
-   It rejects a mismatched/dirty vendor, mismatched GitHub metadata or digest,
-   missing/incompatible runtime plist, Wine binaries or 32/64-bit backend payloads.
-   It reads the archive without installing, runs Python/Swift fixture tests and a
-   release build sequentially, with timeouts and four Swift jobs. Xcode is selected
-   through `DEVELOPER_DIR` (defaults to `/Applications/Xcode.app/Contents/Developer`).
-   `--metadata-only` instead of `--archive` is a preflight, **not** an artifact gate.
-3. Before accepting a changed pair, run isolated Wine integration (below), including
-   install/reinstall identity, GPTK retention/redeploy, 32/64-bit sysinfo and D3D11,
-   DXVK and backend round trips. Static checks do not establish rendering/ABI
-   compatibility. D3DMetal interposer policy is a separate evidence-based review.
-4. Review `git diff`, then stage the JSON, `vendor/Whisky` gitlink, adapter/tests and
-   evidence-related changes together in **one local commit**. Never commit runtime
-   archives or Apple payloads. The checker does not commit, install or push.
-
-### Isolated integration CLI
-
-```sh
-python3 scripts/isolated-cli.py
-```
-
-This copies the package to a temporary directory, embeds a fresh unique test
-bundle ID, builds it, and verifies its actual Foundation support/bottle/log paths
-using `runtime paths`. It prints the binary and writes `isolation.json` beside the
-temporary package. It does **not** install a runtime, create a bottle or run Wine.
-Use **only that printed binary** for later authorized integration commands, never
-the normal checkout CLI or Finder app. Changing `HOME` alone is not isolation.
-
-After authorization, install with that binary's `runtime update` (or explicit
-`--prerelease`), inspect status/identity, import the local original GPTK and use
-diagnostic bottles. Stop only your own diagnostic apps before replacing their
-runtime; never terminate the principal's Wine processes. Keep the printed unique
-support/log paths with test evidence; clean up only those paths and the temporary
-package once their diagnostic processes have exited.
+- [Runtime validation and isolated integration](docs/runtime-validation.md)
+- [WhiskyKit build overlay](patches/README.md)
+- [Runtime pins](Sources/decant/Resources/RuntimePins.json)
 
 ## Credits and license
 
